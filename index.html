@@ -301,6 +301,9 @@
                 }
 
                 currentSessionId = data; // Set the full session ID
+                localStorage.setItem('session_id', currentSessionId);
+                localStorage.setItem('short_code', code);
+
                 sessionIdDisplay.textContent = currentSessionId;
                 shortCodeDisplay.textContent = code; // Display the short code that was entered
 
@@ -371,18 +374,36 @@
             }
         });
 
-        restartSessionButton.addEventListener('click', () => {
-            // Simple page reload to go back to the "Start New Session" screen
+               restartSessionButton.addEventListener('click', () => {
+            localStorage.removeItem('session_id');
+            localStorage.removeItem('short_code');
             window.location.reload();
         });
 
 
         // --- Initialization ---
-        document.addEventListener('DOMContentLoaded', async () => {
-            // Always start with the short code input section visible
-            shortCodeInputSection.classList.remove('hidden');
-            sessionDetailsSection.classList.add('hidden');
-        });
+    document.addEventListener('DOMContentLoaded', async () => {
+    const savedSessionId = localStorage.getItem('session_id');
+    const savedShortCode = localStorage.getItem('short_code');
+
+    if (savedSessionId && savedShortCode) {
+        currentSessionId = savedSessionId;
+        sessionIdDisplay.textContent = currentSessionId;
+        shortCodeDisplay.textContent = savedShortCode;
+
+        shortCodeInputSection.classList.add('hidden');
+        sessionDetailsSection.classList.remove('hidden');
+
+        const productsFetched = await fetchProducts();
+        if (productsFetched) {
+            await setupRealtimeListener(currentSessionId);
+        }
+    } else {
+        shortCodeInputSection.classList.remove('hidden');
+        sessionDetailsSection.classList.add('hidden');
+    }
+});
+
     </script>
 </body>
 </html>
