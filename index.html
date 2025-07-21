@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Checkout</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+        /* Custom scrollbar for item list */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #e0e0e0;
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #a0a0a0;
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #808080;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white shadow-xl rounded-xl p-6 md:p-8 w-full max-w-md border border-gray-200">
+        <!-- Initial Short Code Input Screen -->
+        <div id="short-code-input-section">
+            <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Enter Session Code</h1>
+            <input
+                type="text"
+                id="short-code-input"
+                placeholder="e.g., 1234"
+                maxlength="4"
+                class="w-full p-3 border border-gray-300 rounded-lg mb-4 text-center text-xl font-mono uppercase focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <button
+                id="join-session-button"
+                class="w-full bg-blue-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-blue-600 transition duration-300"
+            >
+                Join Session
+            </button>
+            <p id="input-error-message" class="text-red-500 text-sm mt-2 text-center hidden"></p>
+        </div>
+
+        <!-- Session Details Section (Hidden by default) -->
+        <div id="session-details-section" class="hidden">
+            <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Your Shopping Session</h1>
+
+            <div id="session-info" class="mb-6 text-center">
+                <p class="text-gray-600 text-sm">Session ID:</p>
+                <p id="session-id-display" class="font-mono text-lg font-semibold text-blue-600 break-all"></p>
+                <p class="text-gray-600 text-sm mt-2">Session Code:</p>
+                <p id="short-code-display" class="font-mono text-3xl font-extrabold text-green-600 break-all mt-1"></p>
+                <p class="text-gray-500 text-xs mt-2">Scan items with your ESP32.</p>
+            </div>
+
+            <div class="mb-6">
+                <h2 class="text-xl font-semibold text-gray-700 mb-3">Scanned Items</h2>
+                <div id="item-list" class="bg-gray-50 border border-gray-200 rounded-lg p-4 h-64 overflow-y-auto custom-scrollbar">
+                    <p class="text-gray-500 text-center py-8" id="loading-message">Loading items...</p>
+                    <p class="text-gray-500 text-center py-8 hidden" id="no-items-message">No items scanned yet.</p>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center mb-6 border-t pt-4 border-gray-200">
+                <span class="text-xl font-bold text-gray-800">Total:</span>
+                <span id="total-amount" class="text-2xl font-extrabold text-green-600">INR 0.00</span>
+            </div>
+
+            <div class="flex flex-col space-y-4">
+                <button id="complete-pay-button"
+                        class="w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:from-blue-600 hover:to-blue-700 transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                    Complete & Pay
+                </button>
+                <button id="restart-session-button"
+                        class="w-full bg-gray-300 text-gray-800 font-bold py-3 px-6 rounded-lg shadow-md hover:bg-gray-400 transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50">
+                    Start New Session (Reload Page)
+                </button>
+            </div>
+
+            <!-- Payment QR Code Display -->
+            <div id="payment-qr-section" class="mt-8 text-center hidden">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Scan to Pay</h2>
+                <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 inline-block">
+                    <img id="payment-qr-image" src="" alt="Payment QR Code" class="w-48 h-48 mx-auto">
+                </div>
+                <p class="text-sm text-gray-500 mt-2">Scan this QR code with your payment app.</p>
+                <p class="text-lg font-bold text-green-700 mt-4">Payment Finalized!</p>
+            </div>
+        </div>
+
+        <!-- Message Box for Alerts -->
+        <div id="message-box" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+                <h3 id="message-box-title" class="text-xl font-bold mb-4 text-gray-800"></h3>
+                <p id="message-box-content" class="text-gray-700 mb-6"></p>
+                <button id="message-box-close" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">OK</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+        // --- Supabase Configuration ---
+        // IMPORTANT: Replace with your actual Supabase URL and Anon Key
+        const SUPABASE_URL = 'https://udfaupwngisfjitjdqcf.supabase.co'; // Your Supabase Project URL
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVkZmF1cHduZ2lzZmppdGpkcWNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTEwMjM1MTUsImV4cCI6MjA2NjU5OTUxNX0.O5nh1TFFqQW2J5Shq5rOxOMdXyFYzFW84eXz32f-xns'; // Your Supabase Anon Public Key
+
+        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // --- DOM Elements ---
+        const shortCodeInputSection = document.getElementById('short-code-input-section');
+        const shortCodeInput = document.getElementById('short-code-input');
+        const joinSessionButton = document.getElementById('join-session-button');
+        const inputErrorMessage = document.getElementById('input-error-message');
+
+        const sessionDetailsSection = document.getElementById('session-details-section');
+        const sessionIdDisplay = document.getElementById('session-id-display');
+        const shortCodeDisplay = document.getElementById('short-code-display'); // New element for short code
+        const itemList = document.getElementById('item-list');
+        const totalAmountSpan = document.getElementById('total-amount');
+        const completePayButton = document.getElementById('complete-pay-button');
+        const restartSessionButton = document.getElementById('restart-session-button');
+        const loadingMessage = document.getElementById('loading-message');
+        const noItemsMessage = document.getElementById('no-items-message');
+        const paymentQrSection = document.getElementById('payment-qr-section');
+        const paymentQrImage = document.getElementById('payment-qr-image');
+
+        // Message Box Elements
+        const messageBox = document.getElementById('message-box');
+        const messageBoxTitle = document.getElementById('message-box-title');
+        const messageBoxContent = document.getElementById('message-box-content');
+        const messageBoxClose = document.getElementById('message-box-close');
+
+        // --- Global Variables ---
+        let currentSessionId = '';
+        let itemsData = {}; // Stores {uid: {name, price, quantity}}
+        let productsMap = {}; // Stores {uid: {name, price}}
+        let currentTotalAmount = 0; // Use a variable to track total for calculations
+        let realtimeChannel = null; // To store the real-time channel instance
+
+        // --- Utility Functions ---
+
+        // Function to show custom message box
+        function showMessageBox(title, content) {
+            messageBoxTitle.textContent = title;
+            messageBoxContent.textContent = content;
+            messageBox.classList.remove('hidden');
+        }
+
+        // Function to hide custom message box
+        messageBoxClose.addEventListener('click', () => {
+            messageBox.classList.add('hidden');
+        });
+
+        // Function to fetch products data (UID to price/name mapping)
+        async function fetchProducts() {
+            try {
+                const { data, error } = await supabase
+                    .from('products')
+                    .select('uid, name, price');
+
+                if (error) throw error;
+
+                productsMap = data.reduce((map, product) => {
+                    map[product.uid] = { name: product.name || 'Unknown Item', price: product.price || 0 };
+                    return map;
+                }, {});
+                console.log('Products fetched:', productsMap);
+            } catch (error) {
+                console.error('Error fetching products:', error.message);
+                showMessageBox('Error', 'Could not load product information: ' + error.message);
+                return false;
+            }
+            return true;
+        }
+
+        // Function to render items in the list and update total
+        function renderItems() {
+            itemList.innerHTML = ''; // Clear existing list
+            currentTotalAmount = 0;
+            let hasItems = false;
+
+            for (const uid in itemsData) {
+                hasItems = true;
+                const item = itemsData[uid];
+                const productInfo = productsMap[uid] || { name: 'Unknown Item', price: 0 };
+                const itemTotal = item.quantity * productInfo.price;
+                currentTotalAmount += itemTotal;
+
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'flex justify-between items-center py-2 border-b border-gray-200 last:border-b-0';
+                itemDiv.innerHTML = '<span class="text-gray-700 font-medium">' + productInfo.name + ' (x' + item.quantity + ')</span>' +
+                                    '<span class="text-gray-800 font-semibold">INR ' + itemTotal.toFixed(2) + '</span>';
+                itemList.appendChild(itemDiv);
+            }
+
+            totalAmountSpan.textContent = `INR ${currentTotalAmount.toFixed(2)}`;
+
+            if (hasItems) {
+                noItemsMessage.classList.add('hidden');
+            } else {
+                noItemsMessage.classList.remove('hidden');
+            }
+            loadingMessage.classList.add('hidden');
+        }
+
+        // Function to handle initial fetch and real-time updates
+        async function setupRealtimeListener(sessionId) {
+            // Unsubscribe from any previous channel if it exists
+            if (realtimeChannel) {
+                supabase.removeChannel(realtimeChannel);
+                realtimeChannel = null;
+            }
+
+            // Initial fetch
+            try {
+                const { data, error } = await supabase
+                    .from('cart_items')
+                    .select('uid, quantity')
+                    .eq('session_id', sessionId);
+
+                if (error) throw error;
+
+                itemsData = data.reduce((acc, item) => {
+                    acc[item.uid] = { quantity: acc[item.uid] ? acc[item.uid].quantity + item.quantity : item.quantity }; // Aggregate quantity if UID appears multiple times
+                    return acc;
+                }, {});
+                renderItems();
+            } catch (error) {
+                console.error('Error fetching initial cart items:', error.message);
+                showMessageBox('Error', 'Could not load initial shopping cart: ' + error.message);
+                return false;
+            }
+
+            // Realtime subscription
+            realtimeChannel = supabase
+                .channel(`cart_items_session_${sessionId}`)
+                .on('postgres_changes', {
+                    event: '*', // Listen for INSERT, UPDATE, DELETE
+                    schema: 'public',
+                    table: 'cart_items',
+                    filter: `session_id=eq.${sessionId}`
+                }, (payload) => {
+                    console.log('Realtime change:', payload);
+                    const newUid = payload.new?.uid || payload.old?.uid; // Get UID from new or old payload
+                    if (!newUid) return; // Should not happen
+
+                    setImmediate(() => { // Use setImmediate to ensure state updates are batched
+                        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                            // For INSERT/UPDATE, add/update the item. If it's an update to an existing UID, sum quantities
+                            itemsData[newUid] = { quantity: itemsData[newUid] ? itemsData[newUid].quantity + payload.new.quantity : payload.new.quantity };
+                        } else if (payload.eventType === 'DELETE') {
+                            // For DELETE, remove the item
+                            delete itemsData[newUid];
+                        }
+                        renderItems(); // Re-render the list on any change
+                    });
+                })
+                .subscribe();
+
+            console.log(`Subscribed to real-time updates for session: ${sessionId}`);
+            return true;
+        }
+
+        // --- Event Handlers ---
+
+        joinSessionButton.addEventListener('click', async () => {
+            const code = shortCodeInput.value.trim().toUpperCase();
+            if (code.length !== 4 || !/^\d{4}$/.test(code)) { // Validate 4-digit numeric code
+                inputErrorMessage.textContent = 'Please enter a valid 4-digit numeric code.';
+                inputErrorMessage.classList.remove('hidden');
+                return;
+            }
+            inputErrorMessage.classList.add('hidden'); // Hide error if valid
+
+            joinSessionButton.disabled = true;
+            joinSessionButton.textContent = 'Joining...';
+
+            try {
+                const { data, error } = await supabase.rpc('get_session_id_by_short_code', {
+                    code: code
+                });
+
+                if (error) throw error;
+
+                if (!data) {
+                    showMessageBox('Error', 'Invalid session code. Please try again.');
+                    return;
+                }
+
+                currentSessionId = data; // Set the full session ID
+                sessionIdDisplay.textContent = currentSessionId;
+                shortCodeDisplay.textContent = code; // Display the short code that was entered
+
+                const productsFetched = await fetchProducts();
+                if (!productsFetched) {
+                    throw new Error("Failed to load product data.");
+                }
+
+                const realtimeSetup = await setupRealtimeListener(currentSessionId);
+                if (!realtimeSetup) {
+                    throw new Error("Failed to setup real-time updates.");
+                }
+
+                // Hide input section, show session details
+                shortCodeInputSection.classList.add('hidden');
+                sessionDetailsSection.classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Error joining session:', error.message);
+                showMessageBox('Error', 'Failed to join session: ' + error.message);
+            } finally {
+                joinSessionButton.disabled = false;
+                joinSessionButton.textContent = 'Join Session';
+            }
+        });
+
+
+        completePayButton.addEventListener('click', async () => {
+            completePayButton.disabled = true;
+            completePayButton.textContent = 'Finalizing...';
+            try {
+                const { data, error } = await supabase.rpc('generate_bill_for_completed_session', {
+                    session_id_input: currentSessionId
+                });
+
+                if (error) throw error;
+
+                console.log('Bill finalized successfully:', data);
+                showMessageBox('Success', 'Your session has been completed and bill finalized!');
+
+                const { data: billFinal, error: billError } = await supabase
+                    .from('bills')
+                    .select('total_amount')
+                    .eq('session_id', currentSessionId)
+                    .single();
+
+                if (billError || !billFinal) throw billError || new Error("Final bill not found.");
+
+                const finalAmount = billFinal.total_amount;
+
+                const paymentData = `PAYMENT_FOR_SESSION_${currentSessionId}_AMOUNT_${finalAmount.toFixed(2)}`;
+                const qrCodeApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentData)}`;
+
+                paymentQrImage.src = qrCodeApiUrl;
+                paymentQrSection.classList.remove('hidden');
+
+                completePayButton.classList.add('hidden');
+                restartSessionButton.classList.add('hidden');
+                itemList.classList.add('pointer-events-none', 'opacity-50');
+                totalAmountSpan.parentElement.classList.add('opacity-50');
+
+            } catch (error) {
+                console.error('Error finalizing session or generating bill:', error.message);
+                showMessageBox('Error', 'Failed to finalize session: ' + error.message);
+            } finally {
+                completePayButton.disabled = false;
+                completePayButton.textContent = 'Complete & Pay';
+            }
+        });
+
+        restartSessionButton.addEventListener('click', () => {
+            // Simple page reload to go back to the "Start New Session" screen
+            window.location.reload();
+        });
+
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Always start with the short code input section visible
+            shortCodeInputSection.classList.remove('hidden');
+            sessionDetailsSection.classList.add('hidden');
+        });
+    </script>
+</body>
+</html>
